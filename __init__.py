@@ -25,7 +25,8 @@ def _register_submodules():
     from .panels import status_panel, models_panel
 
     # Registration order matters: sockets before nodes, nodes before categories
-    bpy.utils.register_class(preferences.ModlyAddonPreferences)
+    from .utils import safe_register_class
+    safe_register_class(preferences.ModlyAddonPreferences)
 
     tree.register()
     sockets.register()

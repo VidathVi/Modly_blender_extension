@@ -193,8 +193,9 @@ classes = (
 
 
 def register():
+    from ..utils import safe_register_class
     for cls in classes:
-        bpy.utils.register_class(cls)
+        safe_register_class(cls)
 
 
 def unregister():

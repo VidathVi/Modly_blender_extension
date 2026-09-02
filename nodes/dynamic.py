@@ -179,7 +179,8 @@ def sync_extensions():
                 }
             )
 
-            bpy.utils.register_class(new_class)
+            from ..utils import safe_register_class
+            safe_register_class(new_class)
             _dynamic_classes.append(new_class)
 
             node_items.append(NodeItem(class_name))
