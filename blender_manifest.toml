@@ -1,0 +1,21 @@
+schema_version = "1.0.0"
+
+id = "modly"
+version = "0.1.0"
+name = "Modly — AI Mesh Generation"
+tagline = "Local AI-powered 3D mesh and texture generation via native node graph"
+maintainer = "dassa"
+type = "add-on"
+
+# Compatible with Blender 4.2+ manifest system; targeting 5.2 LTS
+blender_version_min = "4.2.0"
+
+license = ["SPDX:MIT"]
+
+# Based on Modly by Lightning Pixel (MIT licensed)
+# https://github.com/lightningpixel/modly
+website = "https://github.com/lightningpixel/modly"
+
+[permissions]
+network = "Communicates with the locally-running Modly backend over HTTP (localhost)."
+files = "Reads/writes temporary GLB files for mesh export/import and accesses model storage directories."
