@@ -33,7 +33,6 @@ def _register_submodules():
     inputs.register()
     dynamic.register()
     outputs.register()
-    categories.register()
 
     backend_ops.register()
     run_graph.register()
@@ -55,7 +54,7 @@ def _unregister_submodules():
     run_graph.unregister()
     backend_ops.unregister()
 
-    categories.unregister()
+
     outputs.unregister()
     dynamic.unregister()
     inputs.unregister()

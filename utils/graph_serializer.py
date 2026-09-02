@@ -123,7 +123,7 @@ def _resolve_text_prompt(node: bpy.types.Node) -> str:
 
 def _resolve_mesh_path(node: bpy.types.Node) -> str:
     """Walk upstream to find a mesh file path (from Selection-In)."""
-    mesh_socket = node.inputs.get("Mesh File")
+    mesh_socket = node.inputs.get("Mesh") or node.inputs.get("Mesh File")
     if mesh_socket and mesh_socket.is_linked:
         source_node = mesh_socket.links[0].from_node
         if hasattr(source_node, "get_value"):
@@ -228,14 +228,15 @@ def serialize_graph(
             # Resolve mesh input (Texture Mesh)
             task.mesh_path = _resolve_mesh_path(node)
 
-            # Check for upstream generator dependency (Job socket)
-            job_socket = node.inputs.get("Mesh Job") or node.inputs.get("Job")
-            if job_socket and job_socket.is_linked:
-                upstream = job_socket.links[0].from_node
-                task.depends_on = upstream.name
+            # Check for upstream generator dependency
+            dep_socket = node.inputs.get("Mesh") or node.inputs.get("Image")
+            if dep_socket and dep_socket.is_linked:
+                upstream = dep_socket.links[0].from_node
+                if hasattr(upstream, "get_model_id"):
+                    task.depends_on = upstream.name
 
-            # Trellis Text: inject dummy image if no real image provided
-            if task.is_text_only and not task.image_path:
+            # Inject dummy image if no real image provided, for text-to-mesh nodes
+            if not task.image_path and ("trellis-text" in task.model_id or "text-to-mesh" in task.model_id):
                 task.image_path = _create_dummy_image()
 
             tasks.append(task)
@@ -250,9 +251,9 @@ def serialize_graph(
             )
 
             # Find which generator feeds into this
-            job_socket = node.inputs.get("Job")
-            if job_socket and job_socket.is_linked:
-                upstream = job_socket.links[0].from_node
+            mesh_socket = node.inputs.get("Mesh")
+            if mesh_socket and mesh_socket.is_linked:
+                upstream = mesh_socket.links[0].from_node
                 task.depends_on = upstream.name
 
             # For Replace mode: find the source object from Selection-In

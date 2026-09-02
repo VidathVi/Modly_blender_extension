@@ -52,11 +52,6 @@ class MODLY_OT_run_graph(bpy.types.Operator):
     def execute(self, context):
         from ..backend import process_manager
 
-        # Check backend is running
-        if not process_manager.is_running():
-            self.report({'ERROR'}, "Backend is not running — start it first")
-            return {'CANCELLED'}
-
         if not process_manager.health_check():
             self.report({'ERROR'}, "Backend is not responding — check status")
             return {'CANCELLED'}

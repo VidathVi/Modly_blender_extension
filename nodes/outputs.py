@@ -49,7 +49,7 @@ class ModlyAddToSceneNode(ModlyNodeBase, bpy.types.Node):
     output_path: bpy.props.StringProperty(name="Output Path", default="")
 
     def init(self, context):
-        self.inputs.new("ModlyJobSocket", "Job")
+        self.inputs.new("ModlyMeshRefSocket", "Mesh")
 
     def draw_buttons(self, context, layout):
         layout.prop(self, "import_mode")

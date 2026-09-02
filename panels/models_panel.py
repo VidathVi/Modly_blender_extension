@@ -36,6 +36,7 @@ def _scan_extensions() -> List[Dict]:
     if not ext_dir.is_dir():
         return extensions
 
+    allowed_extensions = {"trellis-text", "trellis2", "hunyuan3d-mini-turbo"}
     for entry in sorted(ext_dir.iterdir()):
         if not entry.is_dir():
             continue
@@ -47,9 +48,11 @@ def _scan_extensions() -> List[Dict]:
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
-            manifest["_dir"] = str(entry)
-            manifest["_dir_name"] = entry.name
-            extensions.append(manifest)
+
+            if manifest.get("id") in allowed_extensions:
+                manifest["_dir"] = str(entry)
+                manifest["_dir_name"] = entry.name
+                extensions.append(manifest)
         except (json.JSONDecodeError, OSError):
             extensions.append({
                 "id": entry.name,

@@ -33,13 +33,6 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
     status_text: bpy.props.StringProperty(name="Status", default="Idle")
     progress: bpy.props.IntProperty(name="Progress", default=0, min=0, max=100)
 
-    seed: bpy.props.IntProperty(
-        name="Seed",
-        description="Random seed (0 = random)",
-        default=0,
-        min=0,
-    )
-
     def init(self, context):
         if not hasattr(self.__class__, "_inputs_schema"):
             return
@@ -54,16 +47,22 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
             elif inp == "text":
                 self.inputs.new("ModlyTextSocket", "Prompt")
             elif inp == "mesh":
-                self.inputs.new("ModlyMeshRefSocket", "Mesh File")
+                self.inputs.new("ModlyMeshRefSocket", "Mesh")
 
-        # Nodes that accept mesh input can also chain from an upstream Job
-        if "mesh" in inputs:
-            self.inputs.new("ModlyJobSocket", "Mesh Job")
+        outputs = self.__class__._outputs_schema
+        if isinstance(outputs, str):
+            outputs = [outputs]
 
-        self.outputs.new("ModlyJobSocket", "Job")
+        for out in outputs:
+            if out == "mesh":
+                self.outputs.new("ModlyMeshRefSocket", "Mesh")
+            elif out == "image":
+                self.outputs.new("ModlyImageSocket", "Image")
 
     def draw_buttons(self, context, layout):
-        layout.prop(self, "seed")
+        if hasattr(self, "_params_schema"):
+            for param in self._params_schema:
+                layout.prop(self, param["id"])
 
         if self.run_id:
             box = layout.box()
@@ -74,8 +73,21 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
 
     def get_params(self) -> dict:
         params = {}
-        if self.seed > 0:
-            params["seed"] = self.seed
+        if hasattr(self, "_params_schema"):
+            for param in self._params_schema:
+                prop_id = param["id"]
+                if hasattr(self, prop_id):
+                    val = getattr(self, prop_id)
+                    # Convert Enum strings to actual numeric values if needed
+                    if param["type"] == "select":
+                        for opt in param.get("options", []):
+                            if str(opt["value"]) == val:
+                                params[prop_id] = opt["value"]
+                                break
+                        else:
+                            params[prop_id] = val
+                    else:
+                        params[prop_id] = val
         return params
 
     def get_model_id(self) -> str:
@@ -105,6 +117,7 @@ def _load_manifests_from_disk() -> list:
         log.warning(f"Extensions directory not found: {ext_dir}")
         return []
 
+    allowed_extensions = {"trellis-text", "trellis2", "hunyuan3d-mini-turbo"}
     manifests = []
     for child in sorted(ext_dir.iterdir()):
         manifest_path = child / "manifest.json"
@@ -112,7 +125,10 @@ def _load_manifests_from_disk() -> list:
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                manifests.append(data)
+                
+                # Filter to only the requested models
+                if data.get("id") in allowed_extensions:
+                    manifests.append(data)
             except Exception as e:
                 log.warning(f"Failed to read {manifest_path}: {e}")
 
@@ -165,18 +181,80 @@ def sync_extensions():
             safe_node = node_id.replace('-', '_').replace('.', '_')
             class_name = f"ModlyDynamicNode_{safe_ext}_{safe_node}"
 
+            params_schema = node.get("params_schema", [])
+
+            class_dict = {
+                "bl_idname": class_name,
+                "bl_label": node_name,
+                "bl_icon": "MODIFIER",
+                "bl_width_default": 220,
+                "_model_id": f"{ext_id}:{node_id}",
+                "_inputs_schema": inputs,
+                "_outputs_schema": outputs,
+                "_params_schema": params_schema,
+            }
+
+            annotations = {}
+            for param in params_schema:
+                prop_id = param.get("id")
+                if not prop_id:
+                    continue
+                prop_type = param.get("type", "string")
+                prop_label = param.get("label", prop_id)
+                prop_default = param.get("default")
+                prop_tooltip = param.get("tooltip", "")
+                
+                if prop_type == "int":
+                    safe_min = max(int(param.get("min", -2147483648)), -2147483648)
+                    safe_max = min(int(param.get("max", 2147483647)), 2147483647)
+                    raw_default = int(prop_default) if prop_default is not None else 0
+                    safe_default = max(safe_min, min(raw_default, safe_max))
+                    annotations[prop_id] = bpy.props.IntProperty(
+                        name=prop_label,
+                        description=prop_tooltip,
+                        default=safe_default,
+                        min=safe_min,
+                        max=safe_max,
+                    )
+                elif prop_type == "float":
+                    annotations[prop_id] = bpy.props.FloatProperty(
+                        name=prop_label,
+                        description=prop_tooltip,
+                        default=float(prop_default) if prop_default is not None else 0.0,
+                        min=param.get("min", -3.4e38),
+                        max=param.get("max", 3.4e38),
+                    )
+                elif prop_type == "string":
+                    annotations[prop_id] = bpy.props.StringProperty(
+                        name=prop_label,
+                        description=prop_tooltip,
+                        default=str(prop_default) if prop_default is not None else "",
+                    )
+                elif prop_type == "select":
+                    items = []
+                    for opt in param.get("options", []):
+                        val = str(opt.get("value", ""))
+                        lbl = str(opt.get("label", val))
+                        items.append((val, lbl, ""))
+                    
+                    default_val = str(prop_default) if prop_default is not None else None
+                    if default_val and not any(i[0] == default_val for i in items):
+                        default_val = items[0][0] if items else ""
+                    
+                    if items:
+                        annotations[prop_id] = bpy.props.EnumProperty(
+                            name=prop_label,
+                            description=prop_tooltip,
+                            items=items,
+                            default=default_val if default_val else items[0][0],
+                        )
+
+            class_dict["__annotations__"] = annotations
+
             new_class = type(
                 class_name,
                 (ModlyDynamicNodeBase, bpy.types.Node),
-                {
-                    "bl_idname": class_name,
-                    "bl_label": node_name,
-                    "bl_icon": "MODIFIER",
-                    "bl_width_default": 220,
-                    "_model_id": f"{ext_id}:{node_id}",
-                    "_inputs_schema": inputs,
-                    "_outputs_schema": outputs,
-                }
+                class_dict
             )
 
             from ..utils import safe_register_class
@@ -194,7 +272,7 @@ def sync_extensions():
     # 4. Rebuild categories
     try:
         nodeitems_utils.unregister_node_categories(_CATEGORY_ID)
-    except KeyError:
+    except Exception:
         pass
 
     base_cats = get_base_categories()
@@ -229,3 +307,10 @@ def unregister():
         except Exception:
             pass
     _dynamic_classes.clear()
+
+    import nodeitems_utils
+    from .categories import _CATEGORY_ID
+    try:
+        nodeitems_utils.unregister_node_categories(_CATEGORY_ID)
+    except Exception:
+        pass

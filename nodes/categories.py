@@ -41,6 +41,10 @@ _CATEGORY_ID = "MODLY_NODES"
 
 
 def register():
+    try:
+        nodeitems_utils.unregister_node_categories(_CATEGORY_ID)
+    except KeyError:
+        pass
     nodeitems_utils.register_node_categories(_CATEGORY_ID, get_base_categories())
 
 
