@@ -104,8 +104,8 @@ class MODLY_OT_run_graph(bpy.types.Operator):
                 "Connect an Image Input or Text Prompt node."
             )
 
-        # Extract model_id parts: "extension_id:node_id" -> just extension_id for the API
-        model_id = task.model_id.split(":")[0] if ":" in task.model_id else task.model_id
+        # Extract model_id parts: "extension_id:node_id" -> "extension_id/node_id" for the API
+        model_id = task.model_id.replace(":", "/")
 
         response = api_client.post_workflow_run_from_image(
             image_path=task.image_path,
