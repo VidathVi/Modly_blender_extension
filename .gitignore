@@ -1,1 +1,35 @@
-Documents
+# Project docs (kept locally, not shipped with extension)
+Documents/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Blender backups & temp files
+*.blend1
+*.blend2
+*.blend~
+
+# OS junk
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Virtual environments (backend has its own, never in this repo)
+.venv/
+venv/
+
+# Distribution / packaging
+*.zip
+*.tar.gz
+dist/
+build/
+*.egg-info/
