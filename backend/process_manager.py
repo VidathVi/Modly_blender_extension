@@ -220,7 +220,7 @@ def health_check() -> bool:
     Returns True if the backend responds, False otherwise.
     Also updates the global status.
     """
-    global _status, _status_message
+    global _status, _status_message, _process
 
     from ..preferences import get_backend_url
     import urllib.request

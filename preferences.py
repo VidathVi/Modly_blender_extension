@@ -13,20 +13,24 @@ def _default_modly_api_path() -> str:
     """Best-effort default for the Modly api/ directory."""
     # Check common locations
     candidates = [
+        Path.home() / "Documents" / "Extension_modly" / "Modly" / "resources" / "api",
         Path("C:/Modly"),
         Path.home() / "Modly",
         Path.home() / "Documents" / "Modly",
     ]
     for p in candidates:
-        if (p / "api").is_dir():
-            return str(p / "api")
         if (p / "main.py").is_file():
             return str(p)
-    return str(Path("C:/Modly/api"))
+        if (p / "api").is_dir():
+            return str(p / "api")
+    return str(Path.home() / "Documents" / "Extension_modly" / "Modly" / "resources" / "api")
 
 
 def _default_modly_data_dir() -> str:
     """Default Modly data directory (models, workspace, extensions)."""
+    docs_modly = Path.home() / "Documents" / "Modly"
+    if docs_modly.is_dir():
+        return str(docs_modly)
     return str(Path.home() / ".modly")
 
 

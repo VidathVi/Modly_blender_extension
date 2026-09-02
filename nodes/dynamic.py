@@ -1,19 +1,27 @@
 """
 Dynamic node generation for Modly extensions.
+
+Reads manifest.json files from the local extensions directory
+(configured in addon preferences) and dynamically creates Blender
+node classes for each model node defined in those manifests.
 """
 from __future__ import annotations
 
-import bpy
+import json
 import logging
+from pathlib import Path
+
+import bpy
 from .inputs import ModlyNodeBase
 
 log = logging.getLogger(__name__)
 
 _dynamic_classes = []
 
+
 class ModlyDynamicNodeBase(ModlyNodeBase):
     """Base class for all dynamically generated extension nodes."""
-    
+
     bl_idname = ""
     bl_label = ""
     _model_id = ""
@@ -35,11 +43,11 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
     def init(self, context):
         if not hasattr(self.__class__, "_inputs_schema"):
             return
-            
+
         inputs = self.__class__._inputs_schema
         if isinstance(inputs, str):
             inputs = [inputs]
-            
+
         for inp in inputs:
             if inp == "image":
                 self.inputs.new("ModlyImageSocket", "Image")
@@ -47,8 +55,8 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
                 self.inputs.new("ModlyTextSocket", "Prompt")
             elif inp == "mesh":
                 self.inputs.new("ModlyMeshRefSocket", "Mesh File")
-                
-        # Texture mesh style nodes usually accept a job from upstream too
+
+        # Nodes that accept mesh input can also chain from an upstream Job
         if "mesh" in inputs:
             self.inputs.new("ModlyJobSocket", "Mesh Job")
 
@@ -56,7 +64,7 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
 
     def draw_buttons(self, context, layout):
         layout.prop(self, "seed")
-        
+
         if self.run_id:
             box = layout.box()
             row = box.row()
@@ -82,16 +90,45 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
         return "text" in inputs and "image" not in inputs
 
 
+def _load_manifests_from_disk() -> list:
+    """
+    Read all manifest.json files from the local Modly extensions directory.
+    Returns a list of parsed manifest dicts.
+    """
+    try:
+        from ..preferences import get_extensions_dir
+        ext_dir = get_extensions_dir()
+    except Exception:
+        ext_dir = Path.home() / ".modly" / "extensions"
+
+    if not ext_dir.is_dir():
+        log.warning(f"Extensions directory not found: {ext_dir}")
+        return []
+
+    manifests = []
+    for child in sorted(ext_dir.iterdir()):
+        manifest_path = child / "manifest.json"
+        if child.is_dir() and manifest_path.is_file():
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                manifests.append(data)
+            except Exception as e:
+                log.warning(f"Failed to read {manifest_path}: {e}")
+
+    return manifests
+
+
 def sync_extensions():
     """
-    Fetch extensions from the backend, generate node classes, and rebuild categories.
+    Read extension manifests from disk, generate node classes,
+    and rebuild the Add menu categories.
     """
     global _dynamic_classes
-    from ..utils.api_client import list_extensions
     import nodeitems_utils
     from nodeitems_utils import NodeItem
     from .categories import ModlyNodeCategory, _CATEGORY_ID, get_base_categories
-    
+
     # 1. Unregister old dynamic classes
     for cls in reversed(_dynamic_classes):
         try:
@@ -100,32 +137,34 @@ def sync_extensions():
             log.warning(f"Failed to unregister {cls}: {e}")
     _dynamic_classes.clear()
 
-    # 2. Fetch extensions
-    extensions = list_extensions()
+    # 2. Load manifests from local disk
+    extensions = _load_manifests_from_disk()
     if not extensions:
-        log.warning("No extensions found or backend is offline.")
-        
+        log.warning("No extensions found on disk.")
+
     dynamic_categories = []
 
-    # 3. Create classes and categories
+    # 3. Create classes and categories for each extension
     for ext in extensions:
         ext_id = ext.get("id", "unknown_ext")
         ext_name = ext.get("name", ext_id)
         nodes = ext.get("nodes", [])
-        
+
         node_items = []
-        
+        safe_ext = ext_id.replace('-', '_').replace('.', '_')
+
         for node in nodes:
             node_id = node.get("id", "unknown_node")
             node_name = node.get("name", node_id)
-            inputs = node.get("input", [])
+
+            # Prefer "inputs" (list) over "input" (string) for full fidelity
+            inputs = node.get("inputs", node.get("input", []))
             outputs = node.get("output", [])
-            
+
             # Safe Python class name
-            safe_ext = ext_id.replace('-', '_').replace('.', '_')
             safe_node = node_id.replace('-', '_').replace('.', '_')
             class_name = f"ModlyDynamicNode_{safe_ext}_{safe_node}"
-            
+
             new_class = type(
                 class_name,
                 (ModlyDynamicNodeBase, bpy.types.Node),
@@ -139,12 +178,12 @@ def sync_extensions():
                     "_outputs_schema": outputs,
                 }
             )
-            
+
             bpy.utils.register_class(new_class)
             _dynamic_classes.append(new_class)
-            
+
             node_items.append(NodeItem(class_name))
-            
+
         if node_items:
             cat_id = f"MODLY_DYNAMIC_{safe_ext.upper()}"
             dynamic_categories.append(
@@ -156,23 +195,30 @@ def sync_extensions():
         nodeitems_utils.unregister_node_categories(_CATEGORY_ID)
     except KeyError:
         pass
-        
+
     base_cats = get_base_categories()
     new_categories = []
-    
+
     if len(base_cats) > 0:
         new_categories.append(base_cats[0])  # Inputs
-        
+
     new_categories.extend(dynamic_categories)
-    
+
     if len(base_cats) > 1:
-        new_categories.append(base_cats[1]) # Outputs
+        new_categories.append(base_cats[1])  # Outputs
 
     nodeitems_utils.register_node_categories(_CATEGORY_ID, new_categories)
-    log.info(f"Synced {len(extensions)} extensions and {len(_dynamic_classes)} nodes.")
+    log.info(f"Synced {len(extensions)} extensions, {len(_dynamic_classes)} nodes.")
+
 
 def register():
-    pass
+    # Auto-sync on startup so nodes appear immediately without
+    # requiring the user to click a button.
+    try:
+        sync_extensions()
+    except Exception as e:
+        log.warning(f"Auto-sync on register failed: {e}")
+
 
 def unregister():
     global _dynamic_classes
