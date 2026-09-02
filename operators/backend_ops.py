@@ -123,6 +123,29 @@ class MODLY_OT_check_backend_health(bpy.types.Operator):
             self._timer = None
 
 
+class MODLY_OT_sync_extensions(bpy.types.Operator):
+    """Sync nodes from backend extensions"""
+    
+    bl_idname = "modly.sync_extensions"
+    bl_label = "Sync Extensions"
+    bl_description = "Fetch installed extensions from the backend and generate nodes"
+    
+    def execute(self, context):
+        from ..nodes.dynamic import sync_extensions
+        try:
+            sync_extensions()
+            self.report({'INFO'}, "Successfully synced Modly extensions")
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to sync extensions: {e}")
+            return {'CANCELLED'}
+            
+        for area in context.screen.areas:
+            if area.type == 'NODE_EDITOR':
+                area.tag_redraw()
+                
+        return {'FINISHED'}
+
+
 # ------------------------------------------------------------------ #
 # Registration
 # ------------------------------------------------------------------ #
@@ -132,6 +155,7 @@ classes = (
     MODLY_OT_stop_backend,
     MODLY_OT_restart_backend,
     MODLY_OT_check_backend_health,
+    MODLY_OT_sync_extensions,
 )
 
 

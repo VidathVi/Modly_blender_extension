@@ -91,6 +91,9 @@ def _draw_status(layout: bpy.types.UILayout, context: bpy.types.Context):
     else:
         row.operator("modly.stop_backend", text="Stop", icon='PAUSE')
     row.operator("modly.restart_backend", text="Restart", icon='FILE_REFRESH')
+    
+    row = box.row()
+    row.operator("modly.sync_extensions", text="Sync Extensions", icon='FILE_REFRESH')
 
     # Log file link
     log_path = process_manager.get_log_path()

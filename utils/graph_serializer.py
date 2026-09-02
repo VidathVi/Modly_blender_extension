@@ -208,13 +208,7 @@ def serialize_graph(
             continue
 
         # --- Generator nodes ---
-        if bl_idname in (
-            "ModlyGenerateMeshNode",
-            "ModlyTextureMeshNode",
-            "ModlyTrellisTextBaseNode",
-            "ModlyTrellisTextLargeNode",
-            "ModlyTrellisTextXLNode",
-        ):
+        if hasattr(node, "get_model_id"):
             task = NodeTask(
                 node_name=node.name,
                 node_bl_idname=bl_idname,

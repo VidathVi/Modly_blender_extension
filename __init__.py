@@ -20,7 +20,7 @@ import bpy
 def _register_submodules():
     """Import and register all submodule classes."""
     from . import preferences
-    from .nodes import tree, sockets, categories, inputs, generators, outputs
+    from .nodes import tree, sockets, categories, inputs, dynamic, outputs
     from .operators import backend_ops, run_graph
     from .panels import status_panel, models_panel
 
@@ -30,7 +30,7 @@ def _register_submodules():
     tree.register()
     sockets.register()
     inputs.register()
-    generators.register()
+    dynamic.register()
     outputs.register()
     categories.register()
 
@@ -44,7 +44,7 @@ def _register_submodules():
 def _unregister_submodules():
     """Unregister all submodule classes in reverse order."""
     from . import preferences
-    from .nodes import tree, sockets, categories, inputs, generators, outputs
+    from .nodes import tree, sockets, categories, inputs, dynamic, outputs
     from .operators import backend_ops, run_graph
     from .panels import status_panel, models_panel
 
@@ -56,7 +56,7 @@ def _unregister_submodules():
 
     categories.unregister()
     outputs.unregister()
-    generators.unregister()
+    dynamic.unregister()
     inputs.unregister()
     sockets.unregister()
     tree.unregister()

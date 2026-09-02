@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 _process: Optional[subprocess.Popen] = None
 _process_lock = threading.Lock()
-_status: str = "stopped"  # stopped | starting | running | failed
+_status: str = "stopped"  # stopped | starting | running | failed | installing
 _status_message: str = ""
 _log_path: Optional[Path] = None
 
@@ -68,6 +68,9 @@ def start() -> bool:
 
     with _process_lock:
         if _process is not None and _process.poll() is None:
+            if _status == "installing":
+                _status_message = "Installation in progress..."
+                return True
             _status = "running"
             _status_message = "Backend already running"
             return True
@@ -87,13 +90,36 @@ def start() -> bool:
         # Find the backend venv Python
         python_exe = _find_venv_python(api_path)
         if python_exe is None:
-            _status = "failed"
-            _status_message = (
-                f"No Python venv found in {api_path}. "
-                "Run the Modly setup first to create the backend venv."
-            )
-            log.error(_status_message)
-            return False
+            # We need to create the venv
+            setup_script = Path(__file__).parent / "setup_venv.py"
+            addon_data = Path(os.path.expanduser("~")) / ".modly" / "blender_extension"
+            addon_data.mkdir(parents=True, exist_ok=True)
+            _log_path = addon_data / "backend.log"
+            log_file = open(_log_path, "w", encoding="utf-8")
+
+            cmd = [sys.executable, str(setup_script), str(api_path)]
+            log.info(f"Starting venv setup: {' '.join(cmd)}")
+            
+            creation_flags = 0
+            if sys.platform == "win32":
+                creation_flags = subprocess.CREATE_NO_WINDOW
+            
+            try:
+                _process = subprocess.Popen(
+                    cmd,
+                    cwd=str(api_path),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    creationflags=creation_flags,
+                )
+                _status = "installing"
+                _status_message = "Creating Python virtual environment and installing dependencies... This may take a minute."
+                return True
+            except Exception as exc:
+                _status = "failed"
+                _status_message = f"Failed to start venv setup: {exc}"
+                log.error(_status_message, exc_info=True)
+                return False
 
         # Prepare log file
         addon_data = Path(os.path.expanduser("~")) / ".modly" / "blender_extension"
@@ -214,18 +240,37 @@ def health_check() -> bool:
     except Exception:
         pass
 
+    start_backend_now = False
+
     # If the process died, mark as failed
     with _process_lock:
         if _process is not None and _process.poll() is not None:
             exit_code = _process.returncode
-            _status = "failed"
-            _status_message = f"Backend exited with code {exit_code} — see log"
-            _process = None
-            return False
+            if _status == "installing":
+                if exit_code == 0:
+                    _status = "stopped"
+                    _status_message = "Installation successful. Starting backend..."
+                    _process = None
+                    start_backend_now = True
+                else:
+                    _status = "failed"
+                    _status_message = f"Installation failed with code {exit_code} — see log"
+                    _process = None
+                    return False
+            else:
+                _status = "failed"
+                _status_message = f"Backend exited with code {exit_code} — see log"
+                _process = None
+                return False
+
+    if start_backend_now:
+        return start()
 
     # Process still running but not responding yet
     if _status == "starting":
         _status_message = "Backend starting, waiting for health response..."
+    elif _status == "installing":
+        _status_message = "Creating Python virtual environment and installing dependencies... This may take a minute."
     return False
 
 
