@@ -26,31 +26,20 @@ log = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------ #
-# Base class for all built-in modifier nodes
+# Base mixin — NOT registered with Blender, no bpy.props here
 # ------------------------------------------------------------------ #
 
 class ModlyBuiltinNodeBase(ModlyNodeBase):
     """
-    Base mixin for built-in mesh-operation nodes.
+    Pure Python mixin for built-in mesh-operation nodes.
 
-    Subclasses must set ``bl_idname``, ``bl_label``, ``bl_icon`` and
-    implement ``apply_modifier(obj)``.
+    Provides the sentinel flag, shared socket setup, and the
+    _finalise() helper.  bpy.props are defined on each concrete
+    subclass so Blender's metaclass can register them properly.
     """
 
-    # Sentinel recognised by graph_serializer & run_graph
-    is_builtin_modifier: bool = True
-
-    # When True the modifier is permanently applied (destructive).
-    # When False it stays live on the modifier stack (non-destructive).
-    apply_permanently: bpy.props.BoolProperty(
-        name="Apply Permanently",
-        description=(
-            "If enabled, the modifier is permanently applied to the mesh "
-            "(destructive).  If disabled, it remains on the modifier stack "
-            "so you can tweak it later in the Properties panel"
-        ),
-        default=False,
-    )
+    # Sentinel detected by graph_serializer and run_graph
+    is_builtin_modifier = True
 
     # ----- sockets -----
 
@@ -58,25 +47,17 @@ class ModlyBuiltinNodeBase(ModlyNodeBase):
         self.inputs.new("ModlyMeshRefSocket", "Mesh")
         self.outputs.new("ModlyMeshRefSocket", "Mesh")
 
-    # ----- UI -----
-
-    def draw_buttons(self, context, layout):
-        """Override in subclass to draw property sliders."""
-        pass
-
     # ----- modifier application -----
 
     def apply_modifier(self, obj: bpy.types.Object) -> None:
         """
         Add the appropriate Blender modifier to *obj*.
-
-        Subclasses must override this to configure the specific modifier
-        type and its parameters.
+        Subclasses must override this.
         """
         raise NotImplementedError
 
     def _finalise(self, obj: bpy.types.Object, modifier) -> None:
-        """Optionally apply the modifier permanently."""
+        """Permanently apply the modifier if the node property says so."""
         if self.apply_permanently:
             try:
                 bpy.context.view_layer.objects.active = obj
@@ -118,6 +99,15 @@ class ModlyOptimizeMeshNode(ModlyBuiltinNodeBase, bpy.types.Node):
             ("DISSOLVE", "Planar", "Dissolve planar faces"),
         ],
         default="COLLAPSE",
+    )
+
+    apply_permanently: bpy.props.BoolProperty(
+        name="Apply Permanently",
+        description=(
+            "Permanently apply the modifier (destructive). "
+            "When off, the modifier stays live on the modifier stack"
+        ),
+        default=False,
     )
 
     def draw_buttons(self, context, layout):
@@ -169,6 +159,15 @@ class ModlySmoothMeshNode(ModlyBuiltinNodeBase, bpy.types.Node):
             ("SIMPLE", "Simple", "Keep flat surfaces — just add geometry"),
         ],
         default="CATMULL_CLARK",
+    )
+
+    apply_permanently: bpy.props.BoolProperty(
+        name="Apply Permanently",
+        description=(
+            "Permanently apply the modifier (destructive). "
+            "When off, the modifier stays live on the modifier stack"
+        ),
+        default=False,
     )
 
     def draw_buttons(self, context, layout):
@@ -236,6 +235,15 @@ class ModlyRemeshNode(ModlyBuiltinNodeBase, bpy.types.Node):
         default=True,
     )
 
+    apply_permanently: bpy.props.BoolProperty(
+        name="Apply Permanently",
+        description=(
+            "Permanently apply the modifier (destructive). "
+            "When off, the modifier stays live on the modifier stack"
+        ),
+        default=False,
+    )
+
     def draw_buttons(self, context, layout):
         layout.prop(self, "mode")
         if self.mode == "VOXEL":
@@ -293,6 +301,15 @@ class ModlySolidifyNode(ModlyBuiltinNodeBase, bpy.types.Node):
         name="Even Thickness",
         description="Maintain even thickness around sharp edges",
         default=True,
+    )
+
+    apply_permanently: bpy.props.BoolProperty(
+        name="Apply Permanently",
+        description=(
+            "Permanently apply the modifier (destructive). "
+            "When off, the modifier stays live on the modifier stack"
+        ),
+        default=False,
     )
 
     def draw_buttons(self, context, layout):
