@@ -64,7 +64,7 @@ class ModlyDynamicNodeBase(ModlyNodeBase):
             for param in self._params_schema:
                 layout.prop(self, param["id"])
 
-        if self.run_id:
+        if self.run_id or self.status_text != "Idle":
             box = layout.box()
             row = box.row()
             row.label(text=self.status_text)

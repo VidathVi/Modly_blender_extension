@@ -78,10 +78,9 @@ class MODLY_OT_run_graph(bpy.types.Operator):
         # Submit the first task (or all independent tasks)
         # For now, submit tasks sequentially — the poller handles chaining
         first_task = gen_tasks[0]
-
         try:
-            self._submit_task(first_task, tree)
-        except RuntimeError as exc:
+            submit_task(first_task, tree)
+        except Exception as exc:
             self.report({'ERROR'}, f"Submission failed: {exc}")
             return {'CANCELLED'}
 
@@ -95,45 +94,50 @@ class MODLY_OT_run_graph(bpy.types.Operator):
         self.report({'INFO'}, f"Job submitted: {first_task.node_name}")
         return {'FINISHED'}
 
-    def _submit_task(self, task: NodeTask, tree: bpy.types.NodeTree) -> str:
-        """Submit a single task to the backend.  Returns the run_id."""
 
-        if not task.image_path:
-            raise RuntimeError(
-                f"Node '{task.node_name}' has no image input. "
-                "Connect an Image Input or Text Prompt node."
-            )
+def submit_task(task: NodeTask, tree: bpy.types.NodeTree) -> str:
+    """Submit a single task to the backend.  Returns the run_id."""
 
-        # Extract model_id parts: "extension_id:node_id" -> "extension_id/node_id" for the API
-        model_id = task.model_id.replace(":", "/")
-
-        response = api_client.post_workflow_run_from_image(
-            image_path=task.image_path,
-            model_id=model_id,
-            params=task.params,
+    if not task.image_path:
+        raise RuntimeError(
+            f"Node '{task.node_name}' has no image input. "
+            "Connect an Image Input or Text Prompt node."
         )
 
-        run_id = response.get("run_id") or response.get("job_id", "")
-        if not run_id:
-            raise RuntimeError(f"Backend did not return a run_id: {response}")
+    # Extract model_id parts: "extension_id:node_id" -> "extension_id/node_id" for the API
+    model_id = task.model_id.replace(":", "/")
 
-        # Register in our undo-safe registry
-        job_registry.create_job(
-            run_id=run_id,
-            node_name=task.node_name,
-            tree_name=tree.name,
-        )
+    # Inject mesh_path into params if present (for chained texture tasks)
+    if hasattr(task, "mesh_path") and task.mesh_path:
+        task.params["mesh_path"] = task.mesh_path
 
-        # Update the node's display properties
-        node = tree.nodes.get(task.node_name)
-        if node:
-            node.run_id = run_id
-            node.status_text = "Submitted"
-            node.progress = 0
-            if hasattr(node, 'update_status_color'):
-                node.update_status_color("running")
+    response = api_client.post_workflow_run_from_image(
+        image_path=task.image_path,
+        model_id=model_id,
+        params=task.params,
+    )
 
-        return run_id
+    run_id = response.get("run_id") or response.get("job_id", "")
+    if not run_id:
+        raise RuntimeError(f"Backend did not return a run_id: {response}")
+
+    # Register in our undo-safe registry
+    job_registry.create_job(
+        run_id=run_id,
+        node_name=task.node_name,
+        tree_name=tree.name,
+    )
+
+    # Update the node's display properties
+    node = tree.nodes.get(task.node_name)
+    if node:
+        node.run_id = run_id
+        node.status_text = "Submitted"
+        node.progress = 0
+        if hasattr(node, 'update_status_color'):
+            node.update_status_color("running")
+
+    return run_id
 
 
 # ------------------------------------------------------------------ #
@@ -289,10 +293,13 @@ class MODLY_OT_poll_jobs(bpy.types.Operator):
                         if not task.image_path:
                             task.image_path = output_url
                     try:
-                        run_op = MODLY_OT_run_graph()
-                        run_op._submit_task(task, tree)
+                        submit_task(task, tree)
                     except Exception as exc:
                         log.error(f"Failed to submit chained task: {exc}")
+                        # Update the UI node to show the failure
+                        self._update_node_display(
+                            tree, task.node_name, "failed", f"Failed: {exc}"
+                        )
 
         # Find downstream Add to Scene nodes and trigger import
         for output in gen_node.outputs:
