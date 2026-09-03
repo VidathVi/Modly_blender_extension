@@ -339,6 +339,12 @@ class MODLY_OT_poll_jobs(bpy.types.Operator):
         if candidate.is_file():
             return str(candidate)
 
+        # Try stripping a /workspace/ prefix
+        if output_url.startswith("/workspace/"):
+            candidate = workspace / output_url[11:]
+            if candidate.is_file():
+                return str(candidate)
+
         # Try stripping a /files/ prefix the backend sometimes uses
         if output_url.startswith("/files/"):
             candidate = workspace / output_url[7:]
