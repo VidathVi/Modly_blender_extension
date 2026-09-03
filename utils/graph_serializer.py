@@ -33,6 +33,8 @@ class NodeTask:
     import_mode: str = "ADD"        # ADD or REPLACE
     source_object_name: str = ""    # For REPLACE mode
     depends_on: Optional[str] = None  # node_name of upstream generator (for chaining)
+    is_builtin: bool = False        # Built-in modifier node (local Blender task)
+    builtin_type: str = ""          # bl_idname of the built-in node
 
 
 def topological_sort(tree: bpy.types.NodeTree) -> List[bpy.types.Node]:
@@ -238,6 +240,23 @@ def serialize_graph(
             # Inject dummy image if no real image provided, for text-to-mesh nodes
             if not task.image_path and ("trellis-text" in task.model_id or "text-to-mesh" in task.model_id):
                 task.image_path = _create_dummy_image()
+
+            tasks.append(task)
+
+        # --- Built-in modifier nodes (local Blender tasks) ---
+        elif getattr(node, "is_builtin_modifier", False):
+            task = NodeTask(
+                node_name=node.name,
+                node_bl_idname=bl_idname,
+                is_builtin=True,
+                builtin_type=bl_idname,
+            )
+
+            # Find upstream dependency
+            mesh_socket = node.inputs.get("Mesh")
+            if mesh_socket and mesh_socket.is_linked:
+                upstream = mesh_socket.links[0].from_node
+                task.depends_on = upstream.name
 
             tasks.append(task)
 

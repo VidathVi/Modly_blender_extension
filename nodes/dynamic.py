@@ -278,13 +278,18 @@ def sync_extensions():
     base_cats = get_base_categories()
     new_categories = []
 
+    # Base categories: [0] Inputs, [1] Mesh Operations, [2] Outputs
+    # Dynamic model categories are inserted between Inputs and Mesh Operations.
     if len(base_cats) > 0:
         new_categories.append(base_cats[0])  # Inputs
 
-    new_categories.extend(dynamic_categories)
+    new_categories.extend(dynamic_categories)    # AI model nodes
 
     if len(base_cats) > 1:
-        new_categories.append(base_cats[1])  # Outputs
+        new_categories.append(base_cats[1])  # Mesh Operations
+
+    if len(base_cats) > 2:
+        new_categories.append(base_cats[2])  # Outputs
 
     nodeitems_utils.register_node_categories(_CATEGORY_ID, new_categories)
     log.info(f"Synced {len(extensions)} extensions, {len(_dynamic_classes)} nodes.")

@@ -69,8 +69,8 @@ class MODLY_OT_run_graph(bpy.types.Operator):
             self.report({'WARNING'}, "No generator nodes found in the graph")
             return {'CANCELLED'}
 
-        # Filter to generator tasks (not terminal nodes)
-        gen_tasks = [t for t in tasks if not t.is_terminal]
+        # Filter to generator tasks (not terminal or built-in modifier nodes)
+        gen_tasks = [t for t in tasks if not t.is_terminal and not t.is_builtin]
         if not gen_tasks:
             self.report({'WARNING'}, "No generator nodes to run")
             return {'CANCELLED'}
@@ -301,23 +301,37 @@ class MODLY_OT_poll_jobs(bpy.types.Operator):
                             tree, task.node_name, "failed", f"Failed: {exc}"
                         )
 
-        # Find downstream Add to Scene nodes and trigger import
-        for output in gen_node.outputs:
-            for link in output.links:
-                downstream = link.to_node
-                if downstream.bl_idname == "ModlyAddToSceneNode" and output_url:
-                    if downstream.auto_import:
-                        # Resolve the output file path
-                        file_path = self._resolve_output_path(output_url)
-                        if file_path:
-                            source_obj_name = ""
-                            if downstream.import_mode == "REPLACE":
-                                # Try to find the source object name
-                                source_obj_name = _find_upstream_selection_object(tree, downstream)
-                            downstream.import_result(context, file_path, source_obj_name)
-                    else:
-                        downstream.output_path = output_url
-                        downstream.status_text = "Ready to import — click Import"
+        # Find downstream terminal nodes — walk through any built-in modifier
+        # nodes to reach the Add to Scene node.
+        terminal_nodes = _find_downstream_terminals(tree, gen_node)
+
+        for terminal in terminal_nodes:
+            if terminal.bl_idname == "ModlyAddToSceneNode" and output_url:
+                if terminal.auto_import:
+                    # Resolve the output file path
+                    file_path = self._resolve_output_path(output_url)
+                    if file_path:
+                        source_obj_name = ""
+                        if terminal.import_mode == "REPLACE":
+                            source_obj_name = _find_upstream_selection_object(tree, terminal)
+
+                        # Record objects before import
+                        existing_objects = set(bpy.data.objects.keys())
+
+                        success = terminal.import_result(context, file_path, source_obj_name)
+
+                        if success:
+                            # Identify newly imported objects
+                            new_objects = [
+                                bpy.data.objects[name]
+                                for name in bpy.data.objects.keys()
+                                if name not in existing_objects
+                            ]
+                            # Post-import modifier pass
+                            _apply_builtin_modifiers(tree, terminal, new_objects)
+                else:
+                    terminal.output_path = output_url
+                    terminal.status_text = "Ready to import — click Import"
 
     @staticmethod
     def _resolve_output_path(output_url: str) -> str:
@@ -373,6 +387,101 @@ def _find_upstream_selection_object(tree: bpy.types.NodeTree, node: bpy.types.No
                 if link.is_valid:
                     queue.append(link.from_node)
     return ""
+
+
+def _find_downstream_terminals(
+    tree: bpy.types.NodeTree,
+    start_node: bpy.types.Node,
+) -> list:
+    """
+    Walk downstream from *start_node* through built-in modifier nodes
+    to find all Add to Scene terminal nodes.
+
+    This allows chains like ``Generate → Optimize → Smooth → Add to Scene``
+    to resolve correctly even though the generator is not directly linked
+    to the terminal.
+    """
+    terminals = []
+    visited = set()
+    queue = [start_node]
+
+    while queue:
+        node = queue.pop(0)
+        if node.name in visited:
+            continue
+        visited.add(node.name)
+
+        for output in node.outputs:
+            for link in output.links:
+                if not link.is_valid:
+                    continue
+                downstream = link.to_node
+                if downstream.bl_idname == "ModlyAddToSceneNode":
+                    terminals.append(downstream)
+                elif getattr(downstream, "is_builtin_modifier", False):
+                    # Continue walking through built-in modifier nodes
+                    queue.append(downstream)
+
+    return terminals
+
+
+def _apply_builtin_modifiers(
+    tree: bpy.types.NodeTree,
+    terminal_node: bpy.types.Node,
+    new_objects: list,
+) -> None:
+    """
+    Walk upstream from *terminal_node* collecting built-in modifier nodes,
+    then apply their modifiers to *new_objects* in forward (graph) order.
+
+    The walk collects nodes in reverse (terminal → generator) and then
+    reverses to apply modifiers from the first modifier in the chain
+    to the last, matching the visual graph order.
+    """
+    modifier_nodes = []
+    visited = set()
+    queue = [terminal_node]
+
+    while queue:
+        node = queue.pop(0)
+        if node.name in visited:
+            continue
+        visited.add(node.name)
+
+        for inp in node.inputs:
+            for link in inp.links:
+                if not link.is_valid:
+                    continue
+                upstream = link.from_node
+                if getattr(upstream, "is_builtin_modifier", False):
+                    modifier_nodes.append(upstream)
+                    queue.append(upstream)
+
+    # Reverse so we apply in graph order (generator → terminal direction)
+    modifier_nodes.reverse()
+
+    if not modifier_nodes:
+        return
+
+    mesh_objects = [obj for obj in new_objects if obj.type == 'MESH']
+
+    for mod_node in modifier_nodes:
+        for obj in mesh_objects:
+            try:
+                mod_node.apply_modifier(obj)
+            except Exception as exc:
+                log.warning(
+                    "Failed to apply modifier '%s' on '%s': %s",
+                    mod_node.bl_label, obj.name, exc,
+                )
+        # Update the node's visual status
+        if hasattr(mod_node, "update_status_color"):
+            mod_node.update_status_color("completed")
+
+    log.info(
+        "Applied %d built-in modifier(s) to %d object(s)",
+        len(modifier_nodes), len(mesh_objects),
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -431,6 +540,8 @@ def _serialize_tasks(tasks: List[NodeTask]) -> str:
             "import_mode": t.import_mode,
             "source_object_name": t.source_object_name,
             "depends_on": t.depends_on or "",
+            "is_builtin": t.is_builtin,
+            "builtin_type": t.builtin_type,
         }
         for t in tasks
     ])
@@ -458,6 +569,8 @@ def _deserialize_tasks(raw: str) -> List[NodeTask]:
             import_mode=d.get("import_mode", "ADD"),
             source_object_name=d.get("source_object_name", ""),
             depends_on=d.get("depends_on") or None,
+            is_builtin=d.get("is_builtin", False),
+            builtin_type=d.get("builtin_type", ""),
         ))
     return tasks
 

@@ -17,7 +17,7 @@ class ModlyNodeCategory(NodeCategory):
 
 
 def get_base_categories():
-    """Return the static Input and Output categories."""
+    """Return the static Input, Mesh Operations, and Output categories."""
     return [
         ModlyNodeCategory(
             "MODLY_INPUTS",
@@ -26,6 +26,16 @@ def get_base_categories():
                 NodeItem("ModlyImageInputNode"),
                 NodeItem("ModlyTextPromptNode"),
                 NodeItem("ModlySelectionInNode"),
+            ],
+        ),
+        ModlyNodeCategory(
+            "MODLY_MESH_OPS",
+            "Mesh Operations",
+            items=[
+                NodeItem("ModlyOptimizeMeshNode"),
+                NodeItem("ModlySmoothMeshNode"),
+                NodeItem("ModlyRemeshNode"),
+                NodeItem("ModlySolidifyNode"),
             ],
         ),
         ModlyNodeCategory(
